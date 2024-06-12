@@ -1,12 +1,91 @@
-version: "3.9"
-
 services:
-  db:
-    image: postgres:16-alpine
+  nginx:
+    container_name: next_todos_nginx
+    depends_on:
+      - api
+      - client
     restart: always
     environment:
-      - POSTGRES_USER=iyesss
-      - POSTGRES_PASSWORD=aldiyes17032002
-      - POSTGRES_DB=next_todos_pgdb
+      CLIENT_PORT: ${CLIENT_PORT}
+      API_PORT: ${API_PORT}
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
     ports:
-      - 5432:5432
+      - ${EXPOSE_PORT}:80
+    networks:
+      - next-todos
+  
+  client:
+    container_name: next_todos_client
+    depends_on:
+      - api
+    environment:
+      CLIENT_PORT: ${CLIENT_PORT}
+      API_URL: ${API_URL}
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - path: ./client
+          target: /app
+          action: sync
+        - path: package.json
+          action: rebuild
+        - path: package-lock.json
+          action: rebuild
+        - path: next.config.mjs
+          action: rebuild
+    networks:
+      - next-todos
+  
+  api:
+    container_name: next_todos_api
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      API_PORT: ${API_PORT}
+      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - path: ./client
+          target: /app
+          action: sync
+        - path: package.json
+          action: rebuild
+        - path: package-lock.json
+          action: rebuild
+        - path: next.config.mjs
+          action: rebuild
+    networks:
+      - next-todos
+  
+  database:
+    container_name: next_todos_db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - next-todos
+networks:
+  next-todos:
+    ipam:
+      config:
+        - subnet: 172.20.132.0/24
